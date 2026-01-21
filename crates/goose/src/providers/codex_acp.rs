@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::config::base::CodexCommand;
+use crate::config::base::CodexAcpCommand;
 use crate::config::search_path::SearchPaths;
 use crate::config::{Config, GooseMode};
 use crate::model::ModelConfig;
@@ -27,8 +27,8 @@ pub struct CodexAcpProvider {
 impl CodexAcpProvider {
     pub async fn from_env(model: ModelConfig) -> Result<Self> {
         let config = Config::global();
-        let command: OsString = config.get_codex_command().unwrap_or_default().into();
-        let resolved_command = SearchPaths::builder().with_npm().resolve(command)?;
+        let command: OsString = config.get_codex_acp_command().unwrap_or_default().into();
+        let resolved_command = SearchPaths::builder().with_npm().resolve(command.clone())?;
         let goose_mode = config.get_goose_mode().unwrap_or(GooseMode::Auto);
 
         let permission_mapping = PermissionMapping {
@@ -37,9 +37,14 @@ impl CodexAcpProvider {
             rejected_tool_status: ToolCallStatus::Failed,
         };
 
+        let mut args = vec![];
+        if command == OsString::from("npx") {
+            args.push("@zed-industries/codex-acp".to_string());
+        }
+
         let client_config = AcpClientConfig {
             command: resolved_command,
-            args: vec![],
+            args,
             env: vec![],
             work_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             mcp_servers: vec![],
@@ -90,7 +95,7 @@ impl Provider for CodexAcpProvider {
             CODEX_ACP_DEFAULT_MODEL,
             vec![],
             CODEX_ACP_DOC_URL,
-            vec![ConfigKey::from_value_type::<CodexCommand>(true, false)],
+            vec![ConfigKey::from_value_type::<CodexAcpCommand>(true, false)],
         )
     }
 
