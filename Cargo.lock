@@ -3063,13 +3063,23 @@ name = "goose-acp-client"
 version = "1.20.0"
 dependencies = [
  "anyhow",
+ "env-lock",
+ "etcetera 0.11.0",
+ "flate2",
  "futures",
+ "reqwest 0.12.28",
  "sacp",
+ "serde",
  "serde_json",
+ "sha2",
+ "tar",
+ "tempfile",
  "test-case",
  "tokio",
  "tokio-util",
  "tracing",
+ "wiremock",
+ "zip 0.6.6",
 ]
 
 [[package]]

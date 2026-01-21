@@ -1,4 +1,6 @@
+pub mod binary_store;
 pub mod client;
+mod paths;
 pub mod provider;
 
 pub use client::{text_content, AcpClient, AcpClientConfig, AcpUpdate};

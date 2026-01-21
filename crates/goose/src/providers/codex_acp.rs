@@ -1,11 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::base::CodexAcpCommand;
-use crate::config::search_path::SearchPaths;
 use crate::config::{Config, GooseMode};
 use crate::model::ModelConfig;
 use crate::providers::acp_agent::AcpProviderCore;
@@ -13,11 +11,13 @@ use crate::providers::base::{
     ConfigKey, PermissionRouting, Provider, ProviderMetadata, ProviderUsage,
 };
 use crate::providers::errors::ProviderError;
+use goose_acp_client::binary_store::BinaryStore;
 use goose_acp_client::{schema::ToolCallStatus, AcpClient, AcpClientConfig, PermissionMapping};
 use rmcp::model::Tool;
 
 pub const CODEX_ACP_DEFAULT_MODEL: &str = "default";
 pub const CODEX_ACP_DOC_URL: &str = "https://developers.openai.com/codex/cli";
+const CODEX_ACP_REPO: &str = "zed-industries/codex-acp";
 
 #[derive(Debug)]
 pub struct CodexAcpProvider {
@@ -27,8 +27,13 @@ pub struct CodexAcpProvider {
 impl CodexAcpProvider {
     pub async fn from_env(model: ModelConfig) -> Result<Self> {
         let config = Config::global();
-        let command: OsString = config.get_codex_acp_command().unwrap_or_default().into();
-        let resolved_command = SearchPaths::builder().with_npm().resolve(command.clone())?;
+        let store = BinaryStore::new()?;
+        let resolved_command = store
+            .ensure_github_release_binary(CODEX_ACP_REPO, "codex-acp")
+            .await?;
+        let args = vec![];
+        let work_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let env = vec![];
         let goose_mode = config.get_goose_mode().unwrap_or(GooseMode::Auto);
 
         let permission_mapping = PermissionMapping {
@@ -37,16 +42,11 @@ impl CodexAcpProvider {
             rejected_tool_status: ToolCallStatus::Failed,
         };
 
-        let mut args = vec![];
-        if command == OsString::from("npx") {
-            args.push("@zed-industries/codex-acp".to_string());
-        }
-
         let client_config = AcpClientConfig {
             command: resolved_command,
             args,
-            env: vec![],
-            work_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            env,
+            work_dir,
             mcp_servers: vec![],
             session_mode_id: Some(map_goose_mode(goose_mode)),
             permission_mapping,
