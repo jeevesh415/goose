@@ -1,0 +1,23 @@
+[package]
+name = "goose-acp-client"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+futures = { workspace = true }
+sacp = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { version = "0.7.15", features = ["compat", "rt"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+test-case = "3.3"
+
+[lints]
+workspace = true

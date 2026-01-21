@@ -9,6 +9,7 @@ use crate::config::base::ConfigValue;
 use crate::conversation::message::Message;
 use crate::conversation::Conversation;
 use crate::model::ModelConfig;
+use crate::permission::PermissionConfirmation;
 use crate::utils::safe_truncate;
 use rmcp::model::Tool;
 use utoipa::ToSchema;
@@ -34,6 +35,12 @@ pub fn get_current_model() -> Option<String> {
 }
 
 pub static MSG_COUNT_FOR_SESSION_NAME_GENERATION: usize = 3;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PermissionRouting {
+    ActionRequired,
+    Noop,
+}
 
 /// Information about a model's capabilities
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
@@ -498,6 +505,22 @@ pub trait Provider: Send + Sync {
     }
 
     fn supports_streaming(&self) -> bool {
+        false
+    }
+
+    /// How this provider wants permission confirmations routed.
+    /// - ActionRequired: Goose emits an ActionRequired message; confirmations are forwarded back.
+    /// - Noop: Provider handles permissions internally or does not use them.
+    fn permission_routing(&self) -> PermissionRouting {
+        PermissionRouting::Noop
+    }
+
+    /// Give providers that opt into ActionRequired routing a chance to handle confirmations.
+    async fn handle_permission_confirmation(
+        &self,
+        _request_id: &str,
+        _confirmation: &PermissionConfirmation,
+    ) -> bool {
         false
     }
 

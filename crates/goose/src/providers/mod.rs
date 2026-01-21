@@ -1,3 +1,4 @@
+pub mod acp_agent;
 pub mod anthropic;
 pub mod api_client;
 pub mod auto_detect;
@@ -7,7 +8,9 @@ pub mod base;
 pub mod bedrock;
 pub mod canonical;
 pub mod claude_code;
+pub mod claude_code_acp;
 pub mod codex;
+pub mod codex_acp;
 pub mod cursor_agent;
 pub mod databricks;
 pub mod embedding;

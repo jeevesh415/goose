@@ -916,6 +916,7 @@ impl Config {
 }
 
 config_value!(CLAUDE_CODE_COMMAND, OsString, "claude");
+config_value!(CLAUDE_CODE_ACP_COMMAND, OsString, "npx");
 config_value!(GEMINI_CLI_COMMAND, OsString, "gemini");
 config_value!(CURSOR_AGENT_COMMAND, OsString, "cursor-agent");
 config_value!(CODEX_COMMAND, OsString, "codex");

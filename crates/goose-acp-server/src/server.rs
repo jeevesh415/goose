@@ -46,7 +46,7 @@ pub struct GooseAcpAgent {
     provider: Arc<dyn goose::providers::base::Provider>,
 }
 
-pub struct GooseAcpConfig {
+pub struct AcpServerConfig {
     pub provider: Arc<dyn goose::providers::base::Provider>,
     pub builtins: Vec<String>,
     pub work_dir: std::path::PathBuf,
@@ -305,7 +305,7 @@ impl GooseAcpAgent {
             .get_goose_mode()
             .unwrap_or(goose::config::GooseMode::Auto);
 
-        Self::with_config(GooseAcpConfig {
+        Self::with_config(AcpServerConfig {
             provider,
             builtins,
             work_dir: std::env::current_dir().unwrap_or_default(),
@@ -316,7 +316,7 @@ impl GooseAcpAgent {
         .await
     }
 
-    pub async fn with_config(config: GooseAcpConfig) -> Result<Self> {
+    pub async fn with_config(config: AcpServerConfig) -> Result<Self> {
         let session_manager = Arc::new(SessionManager::new(config.data_dir));
         let permission_manager = Arc::new(PermissionManager::new(config.config_dir));
 
