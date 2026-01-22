@@ -51,7 +51,7 @@ export class AcpClient {
     const data = await response.json();
     this.sessionId = data.session_id;
 
-    this.eventSource = new EventSource(`${this.baseUrl}${data.stream_url}`);
+    this.eventSource = new EventSource(`${this.baseUrl}/acp/session/${this.sessionId}/stream`);
     this.eventSource.onmessage = (event) => {
       try {
         this.handleMessage(JSON.parse(event.data));

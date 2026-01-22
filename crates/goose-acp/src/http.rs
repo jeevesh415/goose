@@ -41,12 +41,20 @@ impl HttpState {
         }
     }
 
-    async fn create_session(&self) -> Result<String> {
-        let session_id = uuid::Uuid::new_v4().to_string();
+    async fn create_session(&self) -> Result<String, StatusCode> {
         let (to_agent_tx, to_agent_rx) = mpsc::channel::<String>(256);
         let (from_agent_tx, from_agent_rx) = mpsc::channel::<String>(256);
 
-        let agent = self.server.create_agent().await?;
+        let agent = self.server.create_agent().await.map_err(|e| {
+            error!("Failed to create agent: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        // Create the ACP session upfront and use its ID as the HTTP session ID
+        let session_id = agent.create_session().await.map_err(|e| {
+            error!("Failed to create ACP session: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
         let handle = tokio::spawn(async move {
             let read_stream = ReceiverToAsyncRead::new(to_agent_rx);
@@ -68,6 +76,7 @@ impl HttpState {
             },
         );
 
+        info!(session_id = %session_id, "Session created");
         Ok(session_id)
     }
 
@@ -191,23 +200,13 @@ impl tokio::io::AsyncWrite for SenderToAsyncWrite {
 #[derive(Serialize)]
 struct CreateSessionResponse {
     session_id: String,
-    stream_url: String,
 }
 
 async fn create_session(
     State(state): State<Arc<HttpState>>,
 ) -> Result<Json<CreateSessionResponse>, StatusCode> {
-    let session_id = state.create_session().await.map_err(|e| {
-        error!("Failed to create session: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    info!(session_id = %session_id, "HTTP session created");
-
-    Ok(Json(CreateSessionResponse {
-        stream_url: format!("/acp/session/{}/stream", session_id),
-        session_id,
-    }))
+    let session_id = state.create_session().await?;
+    Ok(Json(CreateSessionResponse { session_id }))
 }
 
 async fn send_message(

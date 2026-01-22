@@ -39,7 +39,6 @@ export const App: React.FC<AppProps> = ({ serverUrl }) => {
   const [activeTools, setActiveTools] = useState<Map<string, { title: string; status: string }>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
-  const [acpSessionId, setAcpSessionId] = useState<string | null>(null);
   
   const currentResponseRef = useRef('');
   const currentThoughtRef = useRef('');
@@ -50,6 +49,7 @@ export const App: React.FC<AppProps> = ({ serverUrl }) => {
   useEffect(() => {
     const connect = async () => {
       try {
+        // connect() now returns the unified session ID (created server-side)
         const sid = await client.connect();
         setSessionId(sid);
         setConnected(true);
@@ -100,32 +100,27 @@ export const App: React.FC<AppProps> = ({ serverUrl }) => {
 
   useEffect(() => {
     const initializeAcp = async () => {
-      if (!connected || initialized) return;
+      if (!connected || initialized || !sessionId) return;
 
       try {
+        // Just send initialize - session is already created by the server
         await client.sendRequest('initialize', {
           protocolVersion: '2025-01-01',
           clientInfo: { name: 'goose-acp-cli', version: '1.0.0' },
         });
 
-        const response = await client.sendRequest<{ sessionId: string }>('session/new', {
-          cwd: process.cwd(),
-          mcpServers: [],
-        });
-
-        setAcpSessionId(response.sessionId);
         setInitialized(true);
-        setMessages([{ role: 'system', content: `Connected. Session: ${response.sessionId.slice(0, 8)}...` }]);
+        setMessages([{ role: 'system', content: `Connected. Session: ${sessionId.slice(0, 8)}...` }]);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to initialize ACP session');
       }
     };
 
     initializeAcp();
-  }, [connected, initialized, client]);
+  }, [connected, initialized, client, sessionId]);
 
   const handleSubmit = useCallback(async (value: string) => {
-    if (!value.trim() || isProcessing || !acpSessionId) return;
+    if (!value.trim() || isProcessing || !sessionId) return;
 
     const userMessage = value.trim();
     setInput('');
@@ -139,7 +134,7 @@ export const App: React.FC<AppProps> = ({ serverUrl }) => {
 
     try {
       await client.sendRequest('session/prompt', {
-        sessionId: acpSessionId,
+        sessionId: sessionId,
         prompt: [{ type: 'text', text: userMessage }],
       });
 
@@ -160,7 +155,7 @@ export const App: React.FC<AppProps> = ({ serverUrl }) => {
       setCurrentResponse('');
       setCurrentThought('');
     }
-  }, [client, acpSessionId, isProcessing]);
+  }, [client, sessionId, isProcessing]);
 
   useInput((inputChar, key) => {
     if (key.ctrl && inputChar === 'c') {
