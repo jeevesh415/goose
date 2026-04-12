@@ -26,7 +26,7 @@ pub(crate) const JSON_MIME_TYPE: &str = "application/json";
 
 pub(crate) struct TransportSession {
     pub to_agent_tx: mpsc::Sender<String>,
-    pub from_agent_rx: Arc<Mutex<mpsc::Receiver<String>>>,
+    pub from_agent_rx: Arc<Mutex<mpsc::UnboundedReceiver<String>>>,
     pub handle: tokio::task::JoinHandle<()>,
 }
 
@@ -114,6 +114,7 @@ pub fn create_router(server: Arc<AcpServer>) -> Router {
 
     Router::new()
         .route("/health", get(health))
+        .route("/status", get(health))
         .route(
             "/acp",
             post(http::handle_post).with_state(http_state.clone()),

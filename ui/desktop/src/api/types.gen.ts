@@ -80,7 +80,7 @@ export type CheckProviderRequest = {
     provider: string;
 };
 
-export type CommandType = 'Builtin' | 'Recipe';
+export type CommandType = 'Builtin' | 'Recipe' | 'Skill';
 
 /**
  * Configuration key metadata for provider setup
@@ -91,11 +91,16 @@ export type ConfigKey = {
      */
     default?: string | null;
     /**
+     * Whether this OAuth flow uses the device code grant (RFC 8628)
+     * When true, the user must enter a verification code in the browser
+     */
+    device_code_flow?: boolean;
+    /**
      * The name of the configuration key (e.g., "API_KEY")
      */
     name: string;
     /**
-     * Whether this key should be configured using OAuth device code flow
+     * Whether this key should be configured using an OAuth flow
      * When true, the provider's configure_oauth() method will be called instead of prompting for manual input
      */
     oauth_flow: boolean;
@@ -211,12 +216,14 @@ export type DeclarativeProviderConfig = {
     dynamic_models?: boolean | null;
     engine: ProviderEngine;
     env_vars?: Array<EnvVarConfig> | null;
+    fast_model?: string | null;
     headers?: {
         [key: string]: string;
     } | null;
     models: Array<ModelInfo>;
     name: string;
     requires_auth?: boolean;
+    skip_canonical_filtering?: boolean;
     supports_streaming?: boolean | null;
     timeout_seconds?: number | null;
 };
@@ -231,15 +238,6 @@ export type DecodeRecipeResponse = {
 
 export type DeleteRecipeRequest = {
     id: string;
-};
-
-export type DetectProviderRequest = {
-    api_key: string;
-};
-
-export type DetectProviderResponse = {
-    models: Array<string>;
-    provider_name: string;
 };
 
 export type DictationProvider = 'openai' | 'elevenlabs' | 'groq' | 'local';
@@ -334,6 +332,11 @@ export type EnvVarConfig = {
     default?: string | null;
     description?: string | null;
     name: string;
+    /**
+     * When true, the field is shown prominently in the UI (not collapsed).
+     * Defaults to the value of `required` if not specified.
+     */
+    primary?: boolean | null;
     required?: boolean;
     secret?: boolean;
 };
@@ -471,6 +474,15 @@ export type ExtensionQuery = {
 export type ExtensionResponse = {
     extensions: Array<ExtensionEntry>;
     warnings?: Array<string>;
+};
+
+export type FeaturesResponse = {
+    /**
+     * Map of feature name to enabled status
+     */
+    features: {
+        [key: string]: boolean;
+    };
 };
 
 export type ForkRequest = {
@@ -806,6 +818,7 @@ export type ModelInfoResponse = {
 
 export type ModelSettings = {
     context_size?: number | null;
+    enable_thinking?: boolean;
     flash_attention?: boolean | null;
     frequency_penalty?: number;
     max_output_tokens?: number | null;
@@ -1173,6 +1186,8 @@ export type SaveRecipeRequest = {
 };
 
 export type SaveRecipeResponse = {
+    file_name: string;
+    file_path: string;
     id: string;
 };
 
@@ -1218,6 +1233,7 @@ export type Session = {
     recipe?: Recipe | null;
     schedule_id?: string | null;
     session_type?: SessionType;
+    thread_id?: string | null;
     total_tokens?: number | null;
     updated_at: string;
     user_recipe_values?: {
@@ -1273,7 +1289,7 @@ export type SessionReplyResponse = {
     request_id: string;
 };
 
-export type SessionType = 'user' | 'scheduled' | 'sub_agent' | 'hidden' | 'terminal' | 'gateway';
+export type SessionType = 'user' | 'scheduled' | 'sub_agent' | 'hidden' | 'terminal' | 'gateway' | 'acp';
 
 export type SessionsQuery = {
     limit: number;
@@ -1454,6 +1470,9 @@ export type ToolExecution = {
  */
 export type ToolInfo = {
     description: string;
+    input_schema?: {
+        [key: string]: unknown;
+    };
     name: string;
     parameters: Array<string>;
     permission?: PermissionLevel | null;
@@ -2341,29 +2360,6 @@ export type UpdateCustomProviderResponses = {
 
 export type UpdateCustomProviderResponse = UpdateCustomProviderResponses[keyof UpdateCustomProviderResponses];
 
-export type DetectProviderData = {
-    body: DetectProviderRequest;
-    path?: never;
-    query?: never;
-    url: '/config/detect-provider';
-};
-
-export type DetectProviderErrors = {
-    /**
-     * No matching provider found
-     */
-    404: unknown;
-};
-
-export type DetectProviderResponses = {
-    /**
-     * Provider detected successfully
-     */
-    200: DetectProviderResponse;
-};
-
-export type DetectProviderResponse2 = DetectProviderResponses[keyof DetectProviderResponses];
-
 export type GetExtensionsData = {
     body?: never;
     path?: never;
@@ -2844,7 +2840,12 @@ export type SetConfigProviderData = {
 export type GetSlashCommandsData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Optional working directory to discover local skills from
+         */
+        working_dir?: string | null;
+    };
     url: '/config/slash_commands';
 };
 
@@ -3118,6 +3119,22 @@ export type TranscribeDictationResponses = {
 };
 
 export type TranscribeDictationResponse = TranscribeDictationResponses[keyof TranscribeDictationResponses];
+
+export type GetFeaturesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/features';
+};
+
+export type GetFeaturesResponses = {
+    /**
+     * Compile-time feature flags
+     */
+    200: FeaturesResponse;
+};
+
+export type GetFeaturesResponse = GetFeaturesResponses[keyof GetFeaturesResponses];
 
 export type StartNanogptSetupData = {
     body?: never;

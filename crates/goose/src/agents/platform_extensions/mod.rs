@@ -5,16 +5,75 @@ pub mod chatrecall;
 pub mod code_execution;
 pub mod developer;
 pub mod ext_manager;
+pub mod orchestrator;
+pub mod skills;
 pub mod summarize;
 pub mod summon;
 pub mod todo;
 pub mod tom;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::agents::mcp_client::McpClientTrait;
 use crate::session::Session;
 use once_cell::sync::Lazy;
+use serde::Deserialize;
+
+#[derive(Debug, Clone)]
+pub struct Source {
+    pub name: String,
+    pub kind: SourceKind,
+    pub description: String,
+    pub path: PathBuf,
+    pub content: String,
+    pub supporting_files: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SourceKind {
+    Subrecipe,
+    Recipe,
+    Skill,
+    Agent,
+    BuiltinSkill,
+}
+
+impl std::fmt::Display for SourceKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SourceKind::Subrecipe => write!(f, "subrecipe"),
+            SourceKind::Recipe => write!(f, "recipe"),
+            SourceKind::Skill => write!(f, "skill"),
+            SourceKind::Agent => write!(f, "agent"),
+            SourceKind::BuiltinSkill => write!(f, "builtin skill"),
+        }
+    }
+}
+
+impl Source {
+    pub fn to_load_text(&self) -> String {
+        format!(
+            "## {} ({})\n\n{}\n\n### Content\n\n{}",
+            self.name, self.kind, self.description, self.content
+        )
+    }
+}
+
+pub fn parse_frontmatter<T: for<'de> Deserialize<'de>>(
+    content: &str,
+) -> Result<Option<(T, String)>, serde_yaml::Error> {
+    let parts: Vec<&str> = content.split("---").collect();
+    if parts.len() < 3 {
+        return Ok(None);
+    }
+
+    let yaml_content = parts[1].trim();
+    let metadata: T = serde_yaml::from_str(yaml_content)?;
+
+    let body = parts[2..].join("---").trim().to_string();
+    Ok(Some((metadata, body)))
+}
 
 pub use ext_manager::MANAGE_EXTENSIONS_TOOL_NAME_COMPLETE;
 
@@ -37,6 +96,7 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                     "Analyze code structure with tree-sitter: directory overviews, file details, symbol call graphs",
                 default_enabled: true,
                 unprefixed_tools: true,
+                hidden: false,
                 client_factory: |ctx| Box::new(analyze::AnalyzeClient::new(ctx).unwrap()),
             },
         );
@@ -50,6 +110,7 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                     "Enable a todo list for goose so it can keep track of what it is doing",
                 default_enabled: true,
                 unprefixed_tools: false,
+                hidden: false,
                 client_factory: |ctx| Box::new(todo::TodoClient::new(ctx).unwrap()),
             },
         );
@@ -63,6 +124,7 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                     "Create and manage custom Goose apps through chat. Apps are HTML/CSS/JavaScript and run in sandboxed windows.",
                 default_enabled: true,
                 unprefixed_tools: false,
+                hidden: false,
                 client_factory: |ctx| Box::new(apps::AppsManagerClient::new(ctx).unwrap()),
             },
         );
@@ -76,6 +138,7 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                     "Search past conversations and load session summaries for contextual memory",
                 default_enabled: false,
                 unprefixed_tools: false,
+                hidden: false,
                 client_factory: |ctx| Box::new(chatrecall::ChatRecallClient::new(ctx).unwrap()),
             },
         );
@@ -89,6 +152,7 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                     "Enable extension management tools for discovering, enabling, and disabling extensions",
                 default_enabled: true,
                 unprefixed_tools: false,
+                hidden: false,
                 client_factory: |ctx| Box::new(ext_manager::ExtensionManagerClient::new(ctx).unwrap()),
             },
         );
@@ -101,6 +165,7 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                 description: "Load knowledge and delegate tasks to subagents",
                 default_enabled: true,
                 unprefixed_tools: true,
+                hidden: false,
                 client_factory: |ctx| Box::new(summon::SummonClient::new(ctx).unwrap()),
             },
         );
@@ -113,6 +178,7 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                 description: "Load files/directories and get an LLM summary in a single call",
                 default_enabled: false,
                 unprefixed_tools: false,
+                hidden: false,
                 client_factory: |ctx| Box::new(summarize::SummarizeClient::new(ctx).unwrap()),
             },
         );
@@ -127,6 +193,7 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                     "Goose will make extension calls through code execution, saving tokens",
                 default_enabled: false,
                 unprefixed_tools: true,
+                hidden: false,
                 client_factory: |ctx| {
                     Box::new(
                         code_execution::CodeExecutionClient::new(
@@ -147,7 +214,22 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                 description: "Write and edit files, and execute shell commands",
                 default_enabled: true,
                 unprefixed_tools: true,
+                hidden: false,
                 client_factory: |ctx| Box::new(developer::DeveloperClient::new(ctx).unwrap()),
+            },
+        );
+
+        map.insert(
+            orchestrator::EXTENSION_NAME,
+            PlatformExtensionDef {
+                name: orchestrator::EXTENSION_NAME,
+                display_name: "Orchestrator",
+                description:
+                    "Manage agent sessions: list, view, start, send messages, interrupt, and stop agents",
+                default_enabled: false,
+                unprefixed_tools: false,
+                hidden: true,
+                client_factory: |ctx| Box::new(orchestrator::OrchestratorClient::new(ctx).unwrap()),
             },
         );
 
@@ -160,7 +242,21 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                     "Inject custom context into every turn via GOOSE_MOIM_MESSAGE_TEXT and GOOSE_MOIM_MESSAGE_FILE environment variables",
                 default_enabled: true,
                 unprefixed_tools: false,
+                hidden: false,
                 client_factory: |ctx| Box::new(tom::TomClient::new(ctx).unwrap()),
+            },
+        );
+
+        map.insert(
+            skills::EXTENSION_NAME,
+            PlatformExtensionDef {
+                name: skills::EXTENSION_NAME,
+                display_name: "Skills",
+                description: "Discover and provide skill instructions from filesystem and builtins",
+                default_enabled: true,
+                unprefixed_tools: true,
+                hidden: false,
+                client_factory: |ctx| Box::new(skills::SkillsClient::new(ctx).unwrap()),
             },
         );
 
@@ -217,5 +313,7 @@ pub struct PlatformExtensionDef {
     pub default_enabled: bool,
     /// If true, tools are exposed without extension prefix for intuitive first-class use.
     pub unprefixed_tools: bool,
+    /// If true, the extension is not shown in the UI or discoverable via search_available_extensions.
+    pub hidden: bool,
     pub client_factory: fn(PlatformExtensionContext) -> Box<dyn McpClientTrait>,
 }

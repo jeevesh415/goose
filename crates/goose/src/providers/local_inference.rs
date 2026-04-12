@@ -122,12 +122,20 @@ pub fn resolve_model_path(
     usize,
     crate::providers::local_inference::local_model_registry::ModelSettings,
 )> {
-    use crate::providers::local_inference::local_model_registry::get_registry;
+    use crate::providers::local_inference::local_model_registry::{
+        default_settings_for_model, get_registry,
+    };
 
     if let Ok(registry) = get_registry().lock() {
         if let Some(entry) = registry.get_model(model_id) {
             let ctx = entry.settings.context_size.unwrap_or(0) as usize;
-            return Some((entry.local_path.clone(), ctx, entry.settings.clone()));
+            let mut settings = entry.settings.clone();
+            // Capability flags are inherent to the model family, not user-configurable.
+            // Re-derive them so that registry entries persisted before a model was
+            // recognized (or with a different quantization) still get the right behavior.
+            let defaults = default_settings_for_model(model_id);
+            settings.native_tool_calling = defaults.native_tool_calling;
+            return Some((entry.local_path.clone(), ctx, settings));
         }
     }
 
@@ -191,7 +199,7 @@ pub fn recommend_local_model(runtime: &InferenceRuntime) -> String {
     }
 
     // Fallback to first featured model
-    FEATURED_MODELS[0].to_string()
+    FEATURED_MODELS[0].spec.to_string()
 }
 
 fn build_openai_messages_json(system: &str, messages: &[Message]) -> String {
@@ -360,7 +368,7 @@ impl LocalInferenceProvider {
             }
         };
 
-        tracing::info!("Model loaded successfully");
+        tracing::info!(model_id = model_id, "Model loaded successfully");
 
         Ok(LoadedModel { model, template })
     }
@@ -377,7 +385,7 @@ impl ProviderDef for LocalInferenceProvider {
             get_registry, FEATURED_MODELS,
         };
 
-        let mut known_models: Vec<&str> = FEATURED_MODELS.to_vec();
+        let mut known_models: Vec<&str> = FEATURED_MODELS.iter().map(|m| m.spec).collect();
 
         // Add any registry models not already in the featured list
         let mut dynamic_models = Vec::new();
@@ -477,13 +485,18 @@ impl Provider for LocalInferenceProvider {
             }
         }
 
-        // Models that support native OpenAI-compatible tool-call JSON use the
-        // native path (template-based tool calling with JSON output). All other
-        // models use the emulator which parses `$ command` and ```execute blocks.
-        // Only use emulator when there are actually tools to emulate - utility calls
-        // like compaction and session naming pass empty tools and should preserve
-        // their system prompts.
-        let use_emulator = !model_settings.native_tool_calling && !tools.is_empty();
+        // Allow request_params to override thinking
+        let mut model_settings = model_settings;
+        if let Some(false) =
+            model_config.get_config_param::<bool>("enable_thinking", "GOOSE_LOCAL_ENABLE_THINKING")
+        {
+            model_settings.enable_thinking = false;
+        }
+
+        // Use the model's native_tool_calling setting to decide the path.
+        // Featured models have this set explicitly; user-added models default to false.
+        let native_tool_calling = model_settings.native_tool_calling;
+        let use_emulator = !native_tool_calling && !tools.is_empty();
         let system_prompt = if use_emulator {
             load_tiny_model_prompt()
         } else {
@@ -539,7 +552,7 @@ impl Provider for LocalInferenceProvider {
             (None, None)
         };
 
-        let oai_messages_json = if model_settings.use_jinja {
+        let oai_messages_json = if model_settings.use_jinja || native_tool_calling {
             Some(build_openai_messages_json(&system_prompt, messages))
         } else {
             None

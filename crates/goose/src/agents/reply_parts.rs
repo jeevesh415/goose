@@ -96,7 +96,7 @@ fn try_coerce_boolean(s: &str) -> Value {
     }
 }
 
-fn coerce_tool_arguments(
+pub(crate) fn coerce_tool_arguments(
     arguments: Option<serde_json::Map<String, Value>>,
     tool_schema: &Value,
 ) -> Option<serde_json::Map<String, Value>> {
@@ -154,6 +154,7 @@ impl Agent {
             .await;
         #[cfg(not(feature = "code-mode"))]
         let code_execution_active = false;
+        #[cfg(feature = "code-mode")]
         if code_execution_active {
             let disclosure_style =
                 crate::agents::platform_extensions::code_execution::get_tool_disclosure();
@@ -200,6 +201,10 @@ impl Agent {
                 })
                 .collect();
         }
+
+        // Filter out tools not visible to the model per MCP Apps visibility spec.
+        // Tools with `_meta.ui.visibility` that doesn't include "model" are app-only.
+        tools.retain(is_tool_visible_to_model);
 
         // Stable tool ordering is important for multi session prompt caching.
         tools.sort_by(|a, b| a.name.cmp(&b.name));
@@ -334,6 +339,7 @@ impl Agent {
         &self,
         response: &Message,
         tools: &[Tool],
+        suppress_replayed_thinking: bool,
     ) -> (Vec<ToolRequest>, Vec<ToolRequest>, Message) {
         // First collect all tool requests with coercion applied
         let tool_requests: Vec<ToolRequest> = response
@@ -350,7 +356,24 @@ impl Agent {
                                 coerce_tool_arguments(tool_call.arguments.clone(), &schema_value);
 
                             if let Some(ref meta) = tool.meta {
-                                coerced_req.tool_meta = serde_json::to_value(meta).ok();
+                                // Merge registry meta into existing tool_meta;
+                                // existing keys win so provider markers (e.g.
+                                // goose.external_dispatch) survive coercion.
+                                let new_meta = serde_json::to_value(meta).ok();
+                                coerced_req.tool_meta =
+                                    match (coerced_req.tool_meta.take(), new_meta) {
+                                        (
+                                            Some(Value::Object(mut existing)),
+                                            Some(Value::Object(new)),
+                                        ) => {
+                                            for (k, v) in new {
+                                                existing.entry(k).or_insert(v);
+                                            }
+                                            Some(Value::Object(existing))
+                                        }
+                                        (None, new) => new,
+                                        (existing, _) => existing,
+                                    };
                             }
                         }
                     }
@@ -362,7 +385,16 @@ impl Agent {
             })
             .collect();
 
-        // Create a filtered message with frontend tool requests removed
+        let has_tool_requests = !tool_requests.is_empty();
+        let should_suppress_replayed_thinking = suppress_replayed_thinking && has_tool_requests;
+
+        // Create a filtered message with frontend tool requests removed.
+        // When a response contains tool calls, keep reasoning in the original
+        // message for provider/state purposes but only suppress it from the
+        // user-visible filtered message if the caller already surfaced
+        // thinking earlier in this provider turn. That avoids replaying full
+        // accumulated reasoning after streamed thought chunks while still
+        // preserving final-only non-streaming thoughts.
         let mut filtered_content = Vec::new();
         let mut tool_request_index = 0;
 
@@ -373,7 +405,12 @@ impl Agent {
                         let coerced_req = &tool_requests[tool_request_index];
                         tool_request_index += 1;
 
-                        let should_include = if let Ok(tool_call) = &coerced_req.tool_call {
+                        // Always keep externally-dispatched requests visible, even if
+                        // their name happens to overlap a registered frontend tool —
+                        // they're observation-only and must not be removed from history.
+                        let should_include = if coerced_req.is_externally_dispatched() {
+                            true
+                        } else if let Ok(tool_call) = &coerced_req.tool_call {
                             !self.is_frontend_tool(&tool_call.name).await
                         } else {
                             true
@@ -384,6 +421,8 @@ impl Agent {
                         }
                     }
                 }
+                MessageContent::Thinking(_) | MessageContent::RedactedThinking(_)
+                    if should_suppress_replayed_thinking => {}
                 _ => {
                     filtered_content.push(content.clone());
                 }
@@ -403,6 +442,11 @@ impl Agent {
         let mut other_requests = Vec::new();
 
         for request in tool_requests {
+            // Skip externally-dispatched requests (e.g. claude-acp); the
+            // provider already executed the tool. Stays in filtered_message.
+            if request.is_externally_dispatched() {
+                continue;
+            }
             if let Ok(tool_call) = &request.tool_call {
                 if self.is_frontend_tool(&tool_call.name).await {
                     frontend_requests.push(request);
@@ -468,6 +512,48 @@ impl Agent {
 
         Ok(())
     }
+}
+
+/// Check whether a tool should be callable by an app based on MCP Apps visibility metadata.
+///
+/// Per the MCP Apps spec (2026-01-26), if `_meta.ui.visibility` is present and does not
+/// include `"app"`, the tool is model-only and must not be callable by app UIs.
+/// If the field is absent, the tool defaults to visible to both model and app.
+pub fn is_tool_visible_to_app(tool: &Tool) -> bool {
+    let Some(meta) = &tool.meta else {
+        return true;
+    };
+    let Some(ui) = meta.0.get("ui") else {
+        return true;
+    };
+    let Some(visibility) = ui.get("visibility") else {
+        return true;
+    };
+    let Some(arr) = visibility.as_array() else {
+        return true;
+    };
+    arr.iter().any(|v| v.as_str() == Some("app"))
+}
+
+/// Check whether a tool should be visible to the model based on MCP Apps visibility metadata.
+///
+/// Per the MCP Apps spec (2026-01-26), tools may declare `_meta.ui.visibility` as an array
+/// of `"model"` and/or `"app"`. If the field is absent, the tool defaults to visible to both.
+/// If present and does not include `"model"`, the tool is app-only and must not be sent to the LLM.
+pub fn is_tool_visible_to_model(tool: &Tool) -> bool {
+    let Some(meta) = &tool.meta else {
+        return true;
+    };
+    let Some(ui) = meta.0.get("ui") else {
+        return true;
+    };
+    let Some(visibility) = ui.get("visibility") else {
+        return true;
+    };
+    let Some(arr) = visibility.as_array() else {
+        return true;
+    };
+    arr.iter().any(|v| v.as_str() == Some("model"))
 }
 
 #[cfg(test)]
@@ -613,5 +699,201 @@ mod tests {
             error_seen,
             "Error should have been propagated, not silently ignored"
         );
+    }
+
+    #[tokio::test]
+    async fn categorize_tool_requests_keeps_thinking_when_not_previously_streamed() {
+        let agent = crate::agents::Agent::new();
+        let response = Message::assistant()
+            .with_thinking("final-only reasoning", "")
+            .with_tool_request(
+                "tool-1",
+                Ok(rmcp::model::CallToolRequestParams::new("test_tool")),
+            );
+
+        let (_frontend_requests, other_requests, filtered_message) =
+            agent.categorize_tool_requests(&response, &[], false).await;
+
+        assert_eq!(other_requests.len(), 1);
+        assert_eq!(filtered_message.content.len(), 2);
+        assert!(matches!(
+            filtered_message.content[0],
+            MessageContent::Thinking(_)
+        ));
+        assert!(matches!(
+            filtered_message.content[1],
+            MessageContent::ToolRequest(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn categorize_tool_requests_drops_replayed_thinking_after_streaming() {
+        let agent = crate::agents::Agent::new();
+        let response = Message::assistant()
+            .with_thinking("replayed reasoning", "")
+            .with_tool_request(
+                "tool-1",
+                Ok(rmcp::model::CallToolRequestParams::new("test_tool")),
+            );
+
+        let (_frontend_requests, other_requests, filtered_message) =
+            agent.categorize_tool_requests(&response, &[], true).await;
+
+        assert_eq!(other_requests.len(), 1);
+        assert_eq!(filtered_message.content.len(), 1);
+        assert!(matches!(
+            filtered_message.content[0],
+            MessageContent::ToolRequest(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn categorize_tool_requests_skips_externally_dispatched_and_preserves_marker() {
+        // External requests must (1) survive coercion with goose.external_dispatch
+        // intact, (2) be excluded from both dispatch buckets, (3) stay in
+        // filtered_message.
+        use crate::conversation::message::TOOL_META_EXTERNAL_DISPATCH_KEY;
+
+        let agent = crate::agents::Agent::new();
+
+        let registry_tool = Tool::new("test_tool", "a test tool", object!({ "type": "object" }))
+            .with_meta(rmcp::model::Meta(
+                serde_json::json!({ "ui": { "visibility": ["model"] } })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ));
+
+        let response = Message::assistant().with_tool_request_with_metadata(
+            "tool-1",
+            Ok(rmcp::model::CallToolRequestParams::new("test_tool")),
+            None,
+            Some(serde_json::json!({ TOOL_META_EXTERNAL_DISPATCH_KEY: true })),
+        );
+
+        let (frontend_requests, other_requests, filtered_message) = agent
+            .categorize_tool_requests(&response, &[registry_tool], false)
+            .await;
+
+        assert!(
+            frontend_requests.is_empty(),
+            "external request leaked into frontend_requests: {frontend_requests:?}"
+        );
+        assert!(
+            other_requests.is_empty(),
+            "external request leaked into other_requests: {other_requests:?}"
+        );
+        assert_eq!(filtered_message.content.len(), 1);
+        let tool_req = match &filtered_message.content[0] {
+            MessageContent::ToolRequest(req) => req,
+            other => panic!("expected ToolRequest, got {other:?}"),
+        };
+        assert!(
+            tool_req.is_externally_dispatched(),
+            "goose.external_dispatch marker was clobbered by coercion; merged tool_meta = {:?}",
+            tool_req.tool_meta
+        );
+        let merged = tool_req
+            .tool_meta
+            .as_ref()
+            .and_then(|v| v.as_object())
+            .expect("tool_meta should be an object after merge");
+        assert!(
+            merged.contains_key("ui"),
+            "registry tool meta keys were dropped; merged tool_meta = {merged:?}"
+        );
+    }
+
+    fn make_tool_with_meta(meta_json: Option<serde_json::Value>) -> Tool {
+        let mut tool = Tool::new("test_tool", "a test tool", object!({ "type": "object" }));
+        if let Some(v) = meta_json {
+            let obj = v.as_object().unwrap().clone();
+            tool = tool.with_meta(rmcp::model::Meta(obj));
+        }
+        tool
+    }
+
+    #[test]
+    fn test_tool_visible_when_no_meta() {
+        let tool = make_tool_with_meta(None);
+        assert!(is_tool_visible_to_model(&tool));
+    }
+
+    #[test]
+    fn test_tool_visible_when_meta_has_no_ui() {
+        let tool = make_tool_with_meta(Some(serde_json::json!({"other": "stuff"})));
+        assert!(is_tool_visible_to_model(&tool));
+    }
+
+    #[test]
+    fn test_tool_visible_when_ui_has_no_visibility() {
+        let tool = make_tool_with_meta(Some(
+            serde_json::json!({"ui": {"resourceUri": "ui://foo/bar"}}),
+        ));
+        assert!(is_tool_visible_to_model(&tool));
+    }
+
+    #[test]
+    fn test_tool_visible_when_visibility_includes_model() {
+        let tool = make_tool_with_meta(Some(
+            serde_json::json!({"ui": {"visibility": ["model", "app"]}}),
+        ));
+        assert!(is_tool_visible_to_model(&tool));
+    }
+
+    #[test]
+    fn test_tool_visible_when_visibility_is_model_only() {
+        let tool = make_tool_with_meta(Some(serde_json::json!({"ui": {"visibility": ["model"]}})));
+        assert!(is_tool_visible_to_model(&tool));
+    }
+
+    #[test]
+    fn test_tool_hidden_when_visibility_is_app_only() {
+        let tool = make_tool_with_meta(Some(serde_json::json!({"ui": {"visibility": ["app"]}})));
+        assert!(!is_tool_visible_to_model(&tool));
+    }
+
+    #[test]
+    fn test_tool_hidden_when_visibility_is_empty() {
+        let tool = make_tool_with_meta(Some(serde_json::json!({"ui": {"visibility": []}})));
+        assert!(!is_tool_visible_to_model(&tool));
+    }
+
+    #[test]
+    fn test_tool_visible_when_visibility_is_not_array() {
+        let tool = make_tool_with_meta(Some(serde_json::json!({"ui": {"visibility": "model"}})));
+        assert!(is_tool_visible_to_model(&tool));
+    }
+
+    #[test]
+    fn test_app_visible_when_no_meta() {
+        let tool = make_tool_with_meta(None);
+        assert!(is_tool_visible_to_app(&tool));
+    }
+
+    #[test]
+    fn test_app_visible_when_visibility_includes_app() {
+        let tool = make_tool_with_meta(Some(
+            serde_json::json!({"ui": {"visibility": ["model", "app"]}}),
+        ));
+        assert!(is_tool_visible_to_app(&tool));
+    }
+
+    #[test]
+    fn test_app_visible_when_visibility_is_app_only() {
+        let tool = make_tool_with_meta(Some(serde_json::json!({"ui": {"visibility": ["app"]}})));
+        assert!(is_tool_visible_to_app(&tool));
+    }
+
+    #[test]
+    fn test_app_hidden_when_visibility_is_model_only() {
+        let tool = make_tool_with_meta(Some(serde_json::json!({"ui": {"visibility": ["model"]}})));
+        assert!(!is_tool_visible_to_app(&tool));
+    }
+
+    #[test]
+    fn test_app_hidden_when_visibility_is_empty() {
+        let tool = make_tool_with_meta(Some(serde_json::json!({"ui": {"visibility": []}})));
+        assert!(!is_tool_visible_to_app(&tool));
     }
 }

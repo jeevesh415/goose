@@ -37,8 +37,6 @@ The following settings can be configured at the root level of your config.yaml f
 | `GOOSE_MAX_TOKENS` | Maximum number of tokens for each model response (truncates longer responses) | Positive integer | Model-specific | No |
 | `GOOSE_MODE` | [Tool execution behavior](/docs/guides/goose-permissions) | "auto", "approve", "chat", "smart_approve" | "auto" | No |
 | `GOOSE_MAX_TURNS` | [Maximum number of turns](/docs/guides/sessions/smart-context-management#maximum-turns) allowed without user input | Integer (e.g., 10, 50, 100) | 1000 | No |
-| `GOOSE_LEAD_PROVIDER` | Provider for lead model in [lead/worker mode](/docs/guides/environment-variables#leadworker-model-configuration) | Same as `GOOSE_PROVIDER` options | Falls back to `GOOSE_PROVIDER` | No |
-| `GOOSE_LEAD_MODEL` | Lead model for lead/worker mode | Model name | None | No |
 | `GOOSE_PLANNER_PROVIDER` | Provider for [planning mode](/docs/guides/creating-plans) | Same as `GOOSE_PROVIDER` options | Falls back to `GOOSE_PROVIDER` | No |
 | `GOOSE_PLANNER_MODEL` | Model for planning mode | Model name | Falls back to `GOOSE_MODEL` | No |
 | `GOOSE_TOOLSHIM` | Enable tool interpretation | true/false | false | No |
@@ -81,7 +79,7 @@ GOOSE_TOOLSHIM: true
 GOOSE_CLI_MIN_PRIORITY: 0.2
 
 # Recipe Configuration
-GOOSE_RECIPE_GITHUB_REPO: "block/goose-recipes"
+GOOSE_RECIPE_GITHUB_REPO: "aaif-goose/goose-recipes"
 
 # Search Path Configuration
 GOOSE_SEARCH_PATHS:
@@ -122,6 +120,7 @@ extensions:
     name: "extension_name"    # Internal name
     timeout: 300              # Operation timeout in seconds
     type: "builtin"/"stdio"   # Extension type
+    available_tools: []       # Filter to specific tools (empty = all)
     
     # Additional settings for stdio extensions:
     cmd: "command"            # Command to execute
@@ -130,6 +129,10 @@ extensions:
     env_keys: []              # Required environment variables
     envs: {}                  # Environment values
 ```
+
+### Tool Filtering
+
+Use the `available_tools` field to limit which tools are loaded from an extension. List the tool names you want — only those will be available to goose. Leave it empty (the default) to load all tools. This can help reduce token overhead in sessions where you only need a subset of an extension's capabilities.
 
 ## Search Path Configuration
 
