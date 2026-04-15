@@ -1,5 +1,14 @@
 import { useState, useCallback, useRef } from 'react';
-import { Search, Download, ChevronDown, ChevronUp, Loader2, Star, Check, AlertTriangle } from 'lucide-react';
+import {
+  Search,
+  Download,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  Star,
+  Check,
+  AlertTriangle,
+} from 'lucide-react';
 import { Button } from '../../ui/button';
 import {
   searchHfModels,
@@ -90,7 +99,11 @@ interface Props {
   downloadedModelIds?: Set<string>;
 }
 
-export const HuggingFaceModelSearch = ({ onDownloadStarted, activeDownloadIds, downloadedModelIds }: Props) => {
+export const HuggingFaceModelSearch = ({
+  onDownloadStarted,
+  activeDownloadIds,
+  downloadedModelIds,
+}: Props) => {
   const intl = useIntl();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<HfModelInfo[]>([]);
@@ -102,71 +115,79 @@ export const HuggingFaceModelSearch = ({ onDownloadStarted, activeDownloadIds, d
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const doSearch = useCallback(async (q: string) => {
-    if (!q.trim()) {
-      setResults([]);
-      setError(null);
-      return;
-    }
-    setSearching(true);
-    setError(null);
-    try {
-      const response = await searchHfModels({
-        query: { q, limit: 20 },
-      });
-      if (response.data) {
-        // Pre-fetch variants for all results and filter out repos with no suitable quantizations
-        const modelsWithVariants = await Promise.all(
-          response.data.map(async (model) => {
-            try {
-              const [author, repo] = model.repo_id.split('/');
-              const filesResponse = await getRepoFiles({ path: { author, repo } });
-              if (filesResponse.data && filesResponse.data.variants.length > 0) {
-                return { model, data: filesResponse.data };
-              }
-            } catch {
-              // Skip repos we can't fetch
-            }
-            return null;
-          })
-        );
-
-        const validResults = modelsWithVariants.filter(Boolean) as {
-          model: HfModelInfo;
-          data: { variants: HfQuantVariant[]; recommended_index?: number | null; available_memory_bytes: number; downloaded_quants: string[] };
-        }[];
-
-        setResults(validResults.map((r) => r.model));
-        setRepoData((prev) => {
-          const next = { ...prev };
-          for (const r of validResults) {
-            next[r.model.repo_id] = {
-              variants: r.data.variants,
-              recommendedIndex: r.data.recommended_index ?? null,
-              availableMemoryBytes: r.data.available_memory_bytes,
-              downloadedQuants: new Set(r.data.downloaded_quants),
-            };
-          }
-          return next;
-        });
-
-        if (validResults.length === 0) {
-          setError(intl.formatMessage(i18n.noGgufModels));
-        }
-      } else {
-        console.error('Search response:', response);
-        const errMsg = response.error
-          ? intl.formatMessage(i18n.searchError, { details: JSON.stringify(response.error) })
-          : intl.formatMessage(i18n.searchNoData);
-        setError(errMsg);
+  const doSearch = useCallback(
+    async (q: string) => {
+      if (!q.trim()) {
+        setResults([]);
+        setError(null);
+        return;
       }
-    } catch (e) {
-      console.error('Search failed:', e);
-      setError(intl.formatMessage(i18n.searchFailed));
-    } finally {
-      setSearching(false);
-    }
-  }, [intl]);
+      setSearching(true);
+      setError(null);
+      try {
+        const response = await searchHfModels({
+          query: { q, limit: 20 },
+        });
+        if (response.data) {
+          // Pre-fetch variants for all results and filter out repos with no suitable quantizations
+          const modelsWithVariants = await Promise.all(
+            response.data.map(async (model) => {
+              try {
+                const [author, repo] = model.repo_id.split('/');
+                const filesResponse = await getRepoFiles({ path: { author, repo } });
+                if (filesResponse.data && filesResponse.data.variants.length > 0) {
+                  return { model, data: filesResponse.data };
+                }
+              } catch {
+                // Skip repos we can't fetch
+              }
+              return null;
+            })
+          );
+
+          const validResults = modelsWithVariants.filter(Boolean) as {
+            model: HfModelInfo;
+            data: {
+              variants: HfQuantVariant[];
+              recommended_index?: number | null;
+              available_memory_bytes: number;
+              downloaded_quants: string[];
+            };
+          }[];
+
+          setResults(validResults.map((r) => r.model));
+          setRepoData((prev) => {
+            const next = { ...prev };
+            for (const r of validResults) {
+              next[r.model.repo_id] = {
+                variants: r.data.variants,
+                recommendedIndex: r.data.recommended_index ?? null,
+                availableMemoryBytes: r.data.available_memory_bytes,
+                downloadedQuants: new Set(r.data.downloaded_quants),
+              };
+            }
+            return next;
+          });
+
+          if (validResults.length === 0) {
+            setError(intl.formatMessage(i18n.noGgufModels));
+          }
+        } else {
+          console.error('Search response:', response);
+          const errMsg = response.error
+            ? intl.formatMessage(i18n.searchError, { details: JSON.stringify(response.error) })
+            : intl.formatMessage(i18n.searchNoData);
+          setError(errMsg);
+        }
+      } catch (e) {
+        console.error('Search failed:', e);
+        setError(intl.formatMessage(i18n.searchFailed));
+      } finally {
+        setSearching(false);
+      }
+    },
+    [intl]
+  );
 
   const handleQueryChange = (value: string) => {
     setQuery(value);
@@ -235,7 +256,9 @@ export const HuggingFaceModelSearch = ({ onDownloadStarted, activeDownloadIds, d
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-sm font-medium text-text-default mb-2">{intl.formatMessage(i18n.searchHuggingFace)}</h4>
+        <h4 className="text-sm font-medium text-text-default mb-2">
+          {intl.formatMessage(i18n.searchHuggingFace)}
+        </h4>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
           <input
@@ -305,7 +328,8 @@ export const HuggingFaceModelSearch = ({ onDownloadStarted, activeDownloadIds, d
                       const isDownloaded = downloadedModelIds
                         ? downloadedModelIds.has(modelId)
                         : downloadedQuants.has(variant.quantization);
-                      const tooLarge = availableMemory > 0 && variant.size_bytes > availableMemory * 0.85;
+                      const tooLarge =
+                        availableMemory > 0 && variant.size_bytes > availableMemory * 0.85;
 
                       return (
                         <div
@@ -347,22 +371,12 @@ export const HuggingFaceModelSearch = ({ onDownloadStarted, activeDownloadIds, d
                             )}
                           </div>
                           {isDownloaded ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled
-                              className="opacity-60"
-                            >
+                            <Button variant="outline" size="sm" disabled className="opacity-60">
                               <Check className="w-3 h-3 mr-1" />
                               {intl.formatMessage(i18n.downloaded)}
                             </Button>
                           ) : isActiveDownload ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled
-                              className="opacity-60"
-                            >
+                            <Button variant="outline" size="sm" disabled className="opacity-60">
                               <Loader2 className="w-3 h-3 mr-1 animate-spin" />
                               {intl.formatMessage(i18n.downloading)}
                             </Button>
@@ -393,7 +407,6 @@ export const HuggingFaceModelSearch = ({ onDownloadStarted, activeDownloadIds, d
           })}
         </div>
       )}
-
     </div>
   );
 };

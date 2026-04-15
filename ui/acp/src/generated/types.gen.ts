@@ -139,6 +139,61 @@ export type ProviderListEntry = {
 };
 
 /**
+ * List providers with full metadata (config keys, setup steps, etc.).
+ */
+export type GetProviderDetailsRequest = {
+    [key: string]: unknown;
+};
+
+/**
+ * Provider details response.
+ */
+export type GetProviderDetailsResponse = {
+    providers: Array<ProviderDetailEntry>;
+};
+
+export type ProviderDetailEntry = {
+    name: string;
+    displayName: string;
+    description: string;
+    defaultModel: string;
+    isConfigured: boolean;
+    providerType: string;
+    configKeys: Array<ProviderConfigKey>;
+    setupSteps?: Array<string>;
+    knownModels?: Array<ModelEntry>;
+};
+
+export type ProviderConfigKey = {
+    name: string;
+    required: boolean;
+    secret: boolean;
+    default?: string | null;
+    oauthFlow?: boolean;
+    deviceCodeFlow?: boolean;
+    primary?: boolean;
+};
+
+export type ModelEntry = {
+    name: string;
+    contextLimit: number;
+};
+
+/**
+ * Fetch the full list of models available for a specific provider.
+ */
+export type GetProviderModelsRequest = {
+    providerName: string;
+};
+
+/**
+ * Provider models response.
+ */
+export type GetProviderModelsResponse = {
+    models: Array<string>;
+};
+
+/**
  * Read a single non-secret config value.
  */
 export type ReadConfigRequest = {
@@ -244,14 +299,14 @@ export type UnarchiveSessionRequest = {
 export type ExtRequest = {
     id: string;
     method: string;
-    params?: AddExtensionRequest | RemoveExtensionRequest | GetToolsRequest | ReadResourceRequest | UpdateWorkingDirRequest | DeleteSessionRequest | GetExtensionsRequest | UpdateProviderRequest | ListProvidersRequest | ReadConfigRequest | UpsertConfigRequest | RemoveConfigRequest | CheckSecretRequest | UpsertSecretRequest | RemoveSecretRequest | ExportSessionRequest | ImportSessionRequest | ArchiveSessionRequest | UnarchiveSessionRequest | {
+    params?: AddExtensionRequest | RemoveExtensionRequest | GetToolsRequest | ReadResourceRequest | UpdateWorkingDirRequest | DeleteSessionRequest | GetExtensionsRequest | UpdateProviderRequest | ListProvidersRequest | GetProviderDetailsRequest | GetProviderModelsRequest | ReadConfigRequest | UpsertConfigRequest | RemoveConfigRequest | CheckSecretRequest | UpsertSecretRequest | RemoveSecretRequest | ExportSessionRequest | ImportSessionRequest | ArchiveSessionRequest | UnarchiveSessionRequest | {
         [key: string]: unknown;
     } | null;
 };
 
 export type ExtResponse = {
     id: string;
-    result?: EmptyResponse | GetToolsResponse | ReadResourceResponse | GetExtensionsResponse | UpdateProviderResponse | ListProvidersResponse | ReadConfigResponse | CheckSecretResponse | ExportSessionResponse | ImportSessionResponse | unknown;
+    result?: EmptyResponse | GetToolsResponse | ReadResourceResponse | GetExtensionsResponse | UpdateProviderResponse | ListProvidersResponse | GetProviderDetailsResponse | GetProviderModelsResponse | ReadConfigResponse | CheckSecretResponse | ExportSessionResponse | ImportSessionResponse | unknown;
 } | {
     error: {
         code: number;
