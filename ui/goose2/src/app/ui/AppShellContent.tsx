@@ -1,35 +1,29 @@
 import { HomeScreen } from "@/features/home/ui/HomeScreen";
 import { ChatView } from "@/features/chat/ui/ChatView";
 import { SkillsView } from "@/features/skills/ui/SkillsView";
+import { ExtensionsView } from "@/features/extensions/ui/ExtensionsView";
 import { AgentsView } from "@/features/agents/ui/AgentsView";
 import { ProjectsView } from "@/features/projects/ui/ProjectsView";
 import { SessionHistoryView } from "@/features/sessions/ui/SessionHistoryView";
+import { SettingsView } from "@/features/settings/ui/SettingsView";
 import type { ChatSession } from "@/features/chat/stores/chatSessionStore";
-import type { ChatAttachmentDraft } from "@/shared/types/messages";
+import type { SkillInfo } from "@/features/skills/api/skills";
 import type { ProjectInfo } from "@/features/projects/api/projects";
 import type { AppView } from "../AppShell";
+import type { SectionId } from "@/features/settings/ui/settingsSections";
 
 interface AppShellContentProps {
   activeView: AppView;
+  activeSettingsSection: SectionId;
   activeSession?: ChatSession;
-  activeSessionPersonaId?: string;
-  homeSelectedProvider?: string;
-  homeSelectedPersonaId?: string;
-  pendingInitialMessage?: string;
-  pendingInitialAttachments?: ChatAttachmentDraft[];
+  homeSessionId: string | null;
+  onCreatePersona: () => void;
   onArchiveChat: (sessionId: string) => Promise<void>;
   onCreateProject: (options?: {
     initialWorkingDir?: string | null;
     onCreated?: (projectId: string) => void;
   }) => void;
-  onHomeStartChat: (
-    initialMessage?: string,
-    providerId?: string,
-    personaId?: string,
-    projectId?: string | null,
-    attachments?: ChatAttachmentDraft[],
-  ) => void;
-  onInitialMessageConsumed: () => void;
+  onActivateHomeSession: (sessionId: string) => void;
   onRenameChat: (sessionId: string, nextTitle: string) => void;
   onSelectSession: (sessionId: string) => void;
   onSelectSearchResult: (
@@ -38,28 +32,31 @@ interface AppShellContentProps {
     query?: string,
   ) => void;
   onStartChatFromProject: (project: ProjectInfo) => void;
+  onStartChatWithSkill: (skill: SkillInfo, projectId?: string | null) => void;
 }
 
 export function AppShellContent({
   activeView,
+  activeSettingsSection,
   activeSession,
-  activeSessionPersonaId,
-  homeSelectedProvider,
-  homeSelectedPersonaId,
-  pendingInitialMessage,
-  pendingInitialAttachments,
+  homeSessionId,
+  onCreatePersona,
   onArchiveChat,
   onCreateProject,
-  onHomeStartChat,
-  onInitialMessageConsumed,
+  onActivateHomeSession,
   onRenameChat,
   onSelectSession,
   onSelectSearchResult,
   onStartChatFromProject,
+  onStartChatWithSkill,
 }: AppShellContentProps) {
   switch (activeView) {
+    case "settings":
+      return <SettingsView activeSection={activeSettingsSection} />;
     case "skills":
-      return <SkillsView />;
+      return <SkillsView onStartChatWithSkill={onStartChatWithSkill} />;
+    case "extensions":
+      return <ExtensionsView />;
     case "agents":
       return <AgentsView />;
     case "projects":
@@ -74,21 +71,27 @@ export function AppShellContent({
         />
       );
     case "chat":
-    case "home":
       return activeSession ? (
         <ChatView
           key={activeSession.id}
           sessionId={activeSession.id}
-          initialProvider={homeSelectedProvider}
-          initialPersonaId={activeSessionPersonaId ?? homeSelectedPersonaId}
-          initialMessage={pendingInitialMessage}
-          initialAttachments={pendingInitialAttachments}
+          onCreatePersona={onCreatePersona}
           onCreateProject={onCreateProject}
-          onInitialMessageConsumed={onInitialMessageConsumed}
         />
       ) : (
         <HomeScreen
-          onStartChat={onHomeStartChat}
+          sessionId={homeSessionId}
+          onActivateSession={onActivateHomeSession}
+          onCreatePersona={onCreatePersona}
+          onCreateProject={onCreateProject}
+        />
+      );
+    case "home":
+      return (
+        <HomeScreen
+          sessionId={homeSessionId}
+          onActivateSession={onActivateHomeSession}
+          onCreatePersona={onCreatePersona}
           onCreateProject={onCreateProject}
         />
       );

@@ -416,6 +416,11 @@ mod tests {
         use std::sync::Arc;
 
         let tmp_dir = tempfile::tempdir().unwrap();
+        let temp_root = tmp_dir.path().display().to_string();
+        let _guard = env_lock::lock_env([
+            ("HOME", Some(temp_root.as_str())),
+            ("GOOSE_PATH_ROOT", Some(temp_root.as_str())),
+        ]);
         let session_manager = Arc::new(SessionManager::new(tmp_dir.path().to_path_buf()));
         let session = session_manager
             .create_session(
@@ -430,17 +435,16 @@ mod tests {
             extension_manager: None,
             session_manager,
             session: Some(Arc::new(session)),
+            use_login_shell_path: false,
         };
 
         let mut extensions: Vec<ExtensionInfo> = PLATFORM_EXTENSIONS
             .values()
             .map(|def| {
                 let client = (def.client_factory)(context.clone());
-                let info = client.get_info();
-                let instructions = info
-                    .and_then(|i| i.instructions.clone())
-                    .unwrap_or_default();
-                let has_resources = info
+                let instructions = client.get_instructions().unwrap_or_default();
+                let has_resources = client
+                    .get_info()
                     .and_then(|i| i.capabilities.resources.as_ref())
                     .is_some();
                 ExtensionInfo::new(def.name, &instructions, has_resources)

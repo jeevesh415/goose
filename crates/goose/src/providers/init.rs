@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "aws-providers")]
@@ -25,6 +26,7 @@ use super::{
     gemini_oauth::GeminiOAuthProvider,
     githubcopilot::GithubCopilotProvider,
     google::GoogleProvider,
+    kimicode::KimiCodeProvider,
     litellm::LiteLLMProvider,
     nanogpt::NanoGptProvider,
     ollama::OllamaProvider,
@@ -34,7 +36,6 @@ use super::{
     provider_registry::ProviderRegistry,
     snowflake::SnowflakeProvider,
     tetrate::TetrateProvider,
-    venice::VeniceProvider,
     xai::XaiProvider,
 };
 use crate::config::ExtensionConfig;
@@ -72,6 +73,7 @@ async fn init_registry() -> RwLock<ProviderRegistry> {
         registry.register::<GeminiOAuthProvider>(true);
         registry.register::<GithubCopilotProvider>(false);
         registry.register::<GoogleProvider>(true);
+        registry.register::<KimiCodeProvider>(true);
         registry.register::<LiteLLMProvider>(false);
         registry.register::<NanoGptProvider>(true);
         registry.register::<OllamaProvider>(true);
@@ -82,7 +84,6 @@ async fn init_registry() -> RwLock<ProviderRegistry> {
         registry.register::<SageMakerTgiProvider>(false);
         registry.register::<SnowflakeProvider>(false);
         registry.register::<TetrateProvider>(true);
-        registry.register::<VeniceProvider>(false);
         registry.register::<XaiProvider>(false);
     });
     // Register cleanup functions for providers with cached state
@@ -93,6 +94,14 @@ async fn init_registry() -> RwLock<ProviderRegistry> {
     registry.set_cleanup(
         "databricks",
         Arc::new(|| Box::pin(DatabricksProvider::cleanup())),
+    );
+    registry.set_cleanup(
+        "kimi_code",
+        Arc::new(|| Box::pin(KimiCodeProvider::cleanup())),
+    );
+    registry.set_cleanup(
+        "chatgpt_codex",
+        Arc::new(|| Box::pin(ChatGptCodexProvider::cleanup())),
     );
 
     if let Err(e) = load_custom_providers_into_registry(&mut registry) {
@@ -139,6 +148,10 @@ pub async fn get_from_registry(name: &str) -> Result<ProviderEntry> {
         .cloned()
 }
 
+pub async fn inventory_identity(name: &str) -> Result<super::inventory::InventoryIdentityInput> {
+    get_from_registry(name).await?.inventory_identity()
+}
+
 pub async fn create(
     name: &str,
     model: ModelConfig,
@@ -146,6 +159,18 @@ pub async fn create(
 ) -> Result<Arc<dyn Provider>> {
     let entry = get_from_registry(name).await?;
     entry.create(model, extensions).await
+}
+
+pub async fn create_with_working_dir(
+    name: &str,
+    model: ModelConfig,
+    extensions: Vec<ExtensionConfig>,
+    working_dir: PathBuf,
+) -> Result<Arc<dyn Provider>> {
+    let entry = get_from_registry(name).await?;
+    entry
+        .create_with_working_dir(model, extensions, working_dir)
+        .await
 }
 
 pub async fn create_with_default_model(
@@ -222,6 +247,41 @@ mod tests {
             .expect("TANZU_AI_ENDPOINT config key should exist");
         assert!(endpoint.required, "Endpoint should be required");
         assert!(!endpoint.secret, "Endpoint should not be secret");
+    }
+
+    #[tokio::test]
+    async fn test_nvidia_declarative_provider_registry_wiring() {
+        let nvidia = get_from_registry("nvidia")
+            .await
+            .expect("nvidia provider should be registered");
+        let meta = nvidia.metadata();
+
+        assert_eq!(nvidia.provider_type(), ProviderType::Declarative);
+        assert!(nvidia.supports_inventory_refresh());
+        assert_eq!(meta.display_name, "NVIDIA");
+        assert_eq!(meta.default_model, "z-ai/glm-4.7");
+        assert_eq!(meta.model_doc_link, "https://build.nvidia.com/models");
+        assert!(!meta.setup_steps.is_empty());
+
+        let api_key = meta
+            .config_keys
+            .iter()
+            .find(|k| k.name == "NVIDIA_API_KEY")
+            .expect("NVIDIA_API_KEY config key should exist");
+        assert!(api_key.required, "NVIDIA_API_KEY should be required");
+        assert!(api_key.secret, "NVIDIA_API_KEY should be secret");
+        assert!(api_key.primary, "NVIDIA_API_KEY should be primary");
+        assert!(
+            !meta.config_keys.iter().any(|k| k.name == "OPENAI_HOST"),
+            "NVIDIA should not expose OpenAI host configuration"
+        );
+        assert!(
+            !meta
+                .config_keys
+                .iter()
+                .any(|k| k.name == "OPENAI_BASE_PATH"),
+            "NVIDIA should not expose OpenAI base path configuration"
+        );
     }
 
     #[tokio::test]

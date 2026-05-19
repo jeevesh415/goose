@@ -9,7 +9,9 @@ use crate::acp::{
 use crate::config::search_path::SearchPaths;
 use crate::config::{Config, GooseMode};
 use crate::model::ModelConfig;
-use crate::providers::base::{ProviderDef, ProviderMetadata};
+use crate::providers::acp_tooling::{acp_adapter_installed, acp_inventory_identity};
+use crate::providers::base::{current_working_dir, ProviderDef, ProviderMetadata};
+use crate::providers::inventory::InventoryIdentityInput;
 
 const PI_ACP_PROVIDER_NAME: &str = "pi-acp";
 const PI_ACP_DOC_URL: &str = "https://github.com/anthropics/pi";
@@ -33,14 +35,23 @@ impl ProviderDef for PiAcpProvider {
         .with_setup_steps(vec![
             "Install the Pi CLI and the pi-acp adapter",
             "Ensure your Pi CLI is authenticated (run `pi` to verify)",
-            "Set in your goose config file (`~/.config/goose/config.yaml` on macOS/Linux):\n  GOOSE_PROVIDER: pi-acp\n  GOOSE_MODEL: current",
+            "Add to your goose config file (`~/.config/goose/config.yaml` on macOS/Linux):\n  GOOSE_PROVIDER: pi-acp\n  GOOSE_MODEL: current\n  pi-acp_configured: true",
             "Restart goose for changes to take effect",
         ])
+        .with_model_selection_hint("Use the Pi CLI to configure models")
     }
 
     fn from_env(
         model: ModelConfig,
         extensions: Vec<crate::config::ExtensionConfig>,
+    ) -> BoxFuture<'static, Result<AcpProvider>> {
+        Self::from_env_with_working_dir(model, extensions, current_working_dir())
+    }
+
+    fn from_env_with_working_dir(
+        model: ModelConfig,
+        extensions: Vec<crate::config::ExtensionConfig>,
+        working_dir: PathBuf,
     ) -> BoxFuture<'static, Result<AcpProvider>> {
         Box::pin(async move {
             let config = Config::global();
@@ -59,7 +70,7 @@ impl ProviderDef for PiAcpProvider {
                 args: vec![],
                 env: vec![],
                 env_remove: vec![],
-                work_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+                work_dir: working_dir,
                 mcp_servers: extension_configs_to_mcp_servers(&extensions),
                 session_mode_id: Some(mode_mapping[&goose_mode].clone()),
                 mode_mapping,
@@ -69,5 +80,17 @@ impl ProviderDef for PiAcpProvider {
             let metadata = Self::metadata();
             AcpProvider::connect(metadata.name, model, goose_mode, provider_config).await
         })
+    }
+
+    fn supports_inventory_refresh() -> bool {
+        false
+    }
+
+    fn inventory_identity() -> Result<InventoryIdentityInput> {
+        acp_inventory_identity(PI_ACP_PROVIDER_NAME, PI_ACP_BINARY)
+    }
+
+    fn inventory_configured() -> bool {
+        acp_adapter_installed(PI_ACP_BINARY)
     }
 }

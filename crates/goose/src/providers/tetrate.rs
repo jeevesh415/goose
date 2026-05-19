@@ -2,7 +2,7 @@ use super::api_client::{ApiClient, AuthMethod};
 use super::base::{ConfigKey, MessageStream, Provider, ProviderDef, ProviderMetadata};
 use super::errors::ProviderError;
 use super::openai_compatible::{
-    handle_response_openai_compat, handle_status_openai_compat, map_http_error_to_provider_error,
+    handle_response_openai_compat, handle_status, map_http_error_to_provider_error,
     stream_openai_compat,
 };
 use super::retry::ProviderRetry;
@@ -18,7 +18,7 @@ use crate::providers::formats::openai::create_request;
 use rmcp::model::Tool;
 use serde_json::Value;
 
-const TETRATE_PROVIDER_NAME: &str = "tetrate";
+pub const TETRATE_PROVIDER_NAME: &str = "tetrate";
 pub const TETRATE_DOC_URL: &str = "https://router.tetrate.ai";
 pub const TETRATE_BILLING_URL: &str = "https://router.tetrate.ai/billing";
 
@@ -155,7 +155,7 @@ impl Provider for TetrateProvider {
                     .api_client
                     .response_post(Some(session_id), "v1/chat/completions", &payload)
                     .await?;
-                let resp = handle_status_openai_compat(resp)
+                let resp = handle_status(resp)
                     .await
                     .map_err(Self::enrich_credits_error)?;
 

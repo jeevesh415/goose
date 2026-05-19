@@ -1,7 +1,7 @@
 use super::api_client::{ApiClient, AuthMethod};
 use super::base::{ConfigKey, MessageStream, Provider, ProviderDef, ProviderMetadata};
 use super::errors::ProviderError;
-use super::openai_compatible::{handle_status_openai_compat, stream_openai_compat};
+use super::openai_compatible::{handle_status, stream_openai_compat};
 use super::retry::ProviderRetry;
 use super::utils::{ImageFormat, RequestLog};
 use crate::conversation::message::Message;
@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use futures::future::BoxFuture;
 use rmcp::model::Tool;
 
-const NANOGPT_PROVIDER_NAME: &str = "nano-gpt";
+pub const NANOGPT_PROVIDER_NAME: &str = "nano-gpt";
 pub const NANOGPT_API_HOST: &str = "https://nano-gpt.com/api/v1";
 pub const NANOGPT_SUBSCRIPTION_HOST: &str = "https://nano-gpt.com/api/subscription/v1";
 pub const NANOGPT_DEFAULT_MODEL: &str = "anthropic/claude-sonnet-4.6";
@@ -191,7 +191,7 @@ impl Provider for NanoGptProvider {
                     .api_client
                     .response_post(Some(session_id), "chat/completions", &payload)
                     .await?;
-                handle_status_openai_compat(resp).await
+                handle_status(resp).await
             })
             .await
             .inspect_err(|e| {

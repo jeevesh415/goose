@@ -3,7 +3,7 @@ import { IconFolder, IconGitBranch, IconRefresh } from "@tabler/icons-react";
 import type { CreatedWorktree, GitState } from "@/shared/types/git";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
-import type { WorkingContext } from "../../stores/chatSessionStore";
+import type { ActiveWorkspace } from "../../stores/chatSessionStore";
 import { Widget } from "./Widget";
 import { WorkspaceActionsMenu } from "./WorkspaceActionsMenu";
 import { WorkingContextPicker, shortenPath } from "./WorkingContextPicker";
@@ -16,8 +16,8 @@ interface WorkspaceWidgetProps {
   isLoading: boolean;
   isFetching: boolean;
   error: Error | null;
-  activeContext: WorkingContext | undefined;
-  onContextChange: (context: WorkingContext) => void;
+  activeContext: ActiveWorkspace | undefined;
+  onContextChange: (context: ActiveWorkspace) => void;
   onSwitchBranch: (path: string, branch: string) => Promise<void>;
   onStashAndSwitch: (path: string, branch: string) => Promise<void>;
   onInitRepo: (path: string) => Promise<void>;
@@ -36,6 +36,8 @@ interface WorkspaceWidgetProps {
     baseBranch?: string,
   ) => Promise<CreatedWorktree>;
   onRefresh: () => void;
+  isOpen: boolean;
+  onToggleOpen: () => void;
 }
 
 export function WorkspaceWidget({
@@ -56,9 +58,11 @@ export function WorkspaceWidget({
   onCreateBranch,
   onCreateWorktree,
   onRefresh,
+  isOpen,
+  onToggleOpen,
 }: WorkspaceWidgetProps) {
   const { t } = useTranslation("chat");
-  const primaryWorkingDir = projectWorkingDirs[0] ?? null;
+  const primaryWorkspaceRoot = projectWorkingDirs[0] ?? null;
 
   const gitErrorMessage =
     error instanceof Error ? error.message : t("contextPanel.errors.gitRead");
@@ -67,13 +71,15 @@ export function WorkspaceWidget({
     <Widget
       title={t("contextPanel.widgets.workspace")}
       icon={<IconFolder className="size-3.5" />}
+      isOpen={isOpen}
+      onToggleOpen={onToggleOpen}
       action={
         <Button
           type="button"
           variant="ghost"
           size="icon-xs"
           onClick={onRefresh}
-          disabled={!primaryWorkingDir || isFetching}
+          disabled={!primaryWorkspaceRoot || isFetching}
           className="rounded-md"
           aria-label={t("contextPanel.actions.refreshGitStatus")}
           title={t("contextPanel.actions.refreshGitStatus")}
@@ -103,11 +109,11 @@ export function WorkspaceWidget({
           </p>
         )}
 
-        {!primaryWorkingDir ? (
+        {!primaryWorkspaceRoot ? (
           <p className="truncate">{t("contextPanel.empty.folderNotSet")}</p>
         ) : isLoading && !gitState ? (
           <div className="flex items-center gap-2 text-foreground">
-            <Spinner className="size-3.5" />
+            <Spinner className="size-4" />
             <span>{t("contextPanel.states.gitLoading")}</span>
           </div>
         ) : error ? (
@@ -115,7 +121,7 @@ export function WorkspaceWidget({
         ) : gitState?.isGitRepo ? (
           <div className="space-y-2">
             <WorkingContextPicker
-              currentProjectPath={primaryWorkingDir}
+              currentProjectPath={primaryWorkspaceRoot}
               gitState={gitState}
               activeContext={activeContext}
               onSelect={onContextChange}
@@ -123,7 +129,7 @@ export function WorkspaceWidget({
               onStashAndSwitch={onStashAndSwitch}
             />
             <WorkspaceActionsMenu
-              currentProjectPath={primaryWorkingDir}
+              currentProjectPath={primaryWorkspaceRoot}
               gitState={gitState}
               activeContext={activeContext}
               disabled={isFetching}
@@ -137,15 +143,16 @@ export function WorkspaceWidget({
         ) : (
           <div className="space-y-3">
             <p className="truncate text-foreground-subtle">
-              {shortenPath(primaryWorkingDir)}
+              {shortenPath(primaryWorkspaceRoot)}
             </p>
             <Button
               type="button"
               variant="ghost"
               size="xs"
-              onClick={() => void onInitRepo(primaryWorkingDir)}
+              onClick={() => void onInitRepo(primaryWorkspaceRoot)}
+              className="text-sm"
             >
-              <IconGitBranch className="size-3" />
+              <IconGitBranch className="size-4" />
               {t("contextPanel.git.initRepo")}
             </Button>
           </div>

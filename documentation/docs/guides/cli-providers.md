@@ -1,5 +1,5 @@
 ---
-sidebar_position: 45
+sidebar_position: 8
 title: CLI Providers
 sidebar_label: CLI Providers
 description: Use Claude Code, Codex, Cursor Agent, or Gemini CLI subscriptions in goose
@@ -8,7 +8,7 @@ description: Use Claude Code, Codex, Cursor Agent, or Gemini CLI subscriptions i
 # CLI Providers
 
 :::warning Deprecated — Use ACP Providers
-The Claude Code (`claude-code`), Codex (`codex`), and Gemini CLI (`gemini-cli`) providers are deprecated. Use the [ACP providers](/docs/guides/acp-providers) (`claude-acp`, `codex-acp`, `gemini-acp`) instead, which support goose extensions via MCP and use the standardized Agent Client Protocol. CLI providers are kept for backward compatibility only.
+The Claude Code (`claude-code`), Codex (`codex`), and Gemini CLI (`gemini-cli`) providers are deprecated. Use the [ACP providers](/docs/guides/acp-providers) (`claude-acp`, `codex-acp`) instead, which support goose extensions via MCP and use the standardized Agent Client Protocol. For Gemini, use the `Gemini` (`gemini_oauth`) provider which authenticates via OAuth. CLI providers are kept for backward compatibility only.
 :::
 
 goose can make use of pass-through providers that integrate with existing CLI tools from Anthropic, OpenAI, Cursor, and Google. These providers allow you to use your existing Claude Code, Codex, Cursor Agent, and Google Gemini CLI subscriptions through goose's interface, adding session management, persistence, and workflow integration capabilities to these tools.
@@ -25,7 +25,7 @@ CLI providers are useful if you:
 - need session persistence to save, resume, and export conversation history
 - want to use goose recipes and scheduled tasks to create repeatable workflows
 - prefer unified commands across different AI providers
-- want to [use multiple models together](#combining-with-other-models) in your tasks 
+- want to [use multiple models together](#combining-with-planner-models) in your tasks
 
 ### Benefits
 

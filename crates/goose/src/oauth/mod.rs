@@ -1,5 +1,7 @@
 mod persist;
 
+pub use persist::GooseCredentialStore;
+
 use axum::extract::{Query, State};
 use axum::response::Html;
 use axum::routing::get;
@@ -14,9 +16,8 @@ use std::sync::Arc;
 use tokio::sync::{oneshot, Mutex};
 use tracing::warn;
 
-use crate::oauth::persist::GooseCredentialStore;
-
 const CALLBACK_TEMPLATE: &str = include_str!("oauth_callback.html");
+const CLIENT_METADATA_URL: &str = "https://goose-docs.ai/oauth/client-metadata.json";
 
 #[derive(Clone)]
 struct AppState {
@@ -38,12 +39,20 @@ pub async fn oauth_flow(
     auth_manager.set_credential_store(credential_store.clone());
 
     if auth_manager.initialize_from_store().await? {
-        if auth_manager.refresh_token().await.is_ok() {
-            return Ok(auth_manager);
+        match auth_manager.refresh_token().await {
+            Ok(_) => {
+                return Ok(auth_manager);
+            }
+            Err(e) => {
+                warn!(
+                    "[OAuth:{}] Token refresh failed: {} - clearing stored credentials and falling back to browser auth",
+                    name, e
+                );
+            }
         }
 
         if let Err(e) = credential_store.clear().await {
-            warn!("error clearing bad credentials: {}", e);
+            warn!("[OAuth:{}] error clearing bad credentials: {}", name, e);
         }
     }
 
@@ -67,7 +76,11 @@ pub async fn oauth_flow(
         .route("/oauth_callback", get(handler))
         .with_state(app_state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+    let port: u16 = std::env::var("GOOSE_OAUTH_CALLBACK_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(0);
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let used_addr = listener.local_addr()?;
     tokio::spawn(async move {
@@ -79,9 +92,14 @@ pub async fn oauth_flow(
 
     let mut oauth_state = OAuthState::new(mcp_server_url, None).await?;
 
-    let redirect_uri = format!("http://localhost:{}/oauth_callback", used_addr.port());
+    let redirect_uri = format!("http://127.0.0.1:{}/oauth_callback", used_addr.port());
     oauth_state
-        .start_authorization(&[], redirect_uri.as_str(), Some("goose"))
+        .start_authorization_with_metadata_url(
+            &[],
+            redirect_uri.as_str(),
+            Some("goose"),
+            Some(CLIENT_METADATA_URL),
+        )
         .await?;
 
     let authorization_url = oauth_state.get_authorization_url().await?;
@@ -109,17 +127,17 @@ pub async fn oauth_flow(
         .unwrap_or_default();
 
     credential_store
-        .save(StoredCredentials {
+        .save(StoredCredentials::new(
             client_id,
             token_response,
             granted_scopes,
-            token_received_at: Some(
+            Some(
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|duration| duration.as_secs())
                     .unwrap_or(0),
             ),
-        })
+        ))
         .await?;
 
     auth_manager.set_credential_store(credential_store);

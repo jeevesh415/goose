@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use super::api_client::{ApiClient, AuthMethod};
 use super::base::{ConfigKey, MessageStream, Provider, ProviderDef, ProviderMetadata};
 use super::errors::ProviderError;
-use super::openai_compatible::{handle_status_openai_compat, stream_openai_compat};
+use super::openai_compatible::{handle_status, stream_openai_compat};
 use super::retry::ProviderRetry;
 use super::utils::{ImageFormat, RequestLog};
 use crate::conversation::message::Message;
@@ -15,7 +15,7 @@ use crate::providers::formats::openai::create_request;
 use crate::providers::formats::openrouter as openrouter_format;
 use rmcp::model::Tool;
 
-const OPENROUTER_PROVIDER_NAME: &str = "openrouter";
+pub const OPENROUTER_PROVIDER_NAME: &str = "openrouter";
 pub const OPENROUTER_DEFAULT_MODEL: &str = "anthropic/claude-sonnet-4";
 pub const OPENROUTER_DEFAULT_FAST_MODEL: &str = "google/gemini-2.5-flash";
 pub const OPENROUTER_MODEL_PREFIX_ANTHROPIC: &str = "anthropic";
@@ -291,7 +291,7 @@ impl Provider for OpenRouterProvider {
                     .api_client
                     .response_post(Some(session_id), "api/v1/chat/completions", &payload)
                     .await?;
-                handle_status_openai_compat(resp).await
+                handle_status(resp).await
             })
             .await
             .inspect_err(|e| {

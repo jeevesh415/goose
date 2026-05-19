@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { listen } from "@tauri-apps/api/event";
 import { FilesList } from "./FilesList";
 import { useGitState } from "@/shared/hooks/useGitState";
 import { useChangedFiles } from "@/shared/hooks/useChangedFiles";
@@ -16,11 +15,10 @@ import {
 import type { CreatedWorktree } from "@/shared/types/git";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { useChatSessionStore } from "../stores/chatSessionStore";
-import type { WorkingContext } from "../stores/chatSessionStore";
+import type { ActiveWorkspace } from "../stores/chatSessionStore";
 import { WorkspaceWidget } from "./widgets/WorkspaceWidget";
 import { ChangesWidget } from "./widgets/ChangesWidget";
 import { ArtifactsWidget } from "./widgets/ArtifactsWidget";
-import { McpServersWidget } from "./widgets/McpServersWidget";
 import { openPath } from "@tauri-apps/plugin-opener";
 
 interface ContextPanelProps {
@@ -31,6 +29,35 @@ interface ContextPanelProps {
 }
 
 type ContextPanelTab = "details" | "files";
+type ContextPanelSection = "workspace" | "changes" | "artifacts";
+type ContextPanelSectionVisibility = Record<ContextPanelSection, boolean>;
+
+const SECTION_VISIBILITY_STORAGE_KEY = "goose:context-panel:section-visibility";
+
+function getStoredSectionVisibility(): ContextPanelSectionVisibility {
+  const defaults = { workspace: true, changes: true, artifacts: true };
+  if (typeof window === "undefined") return defaults;
+  try {
+    const stored = window.localStorage.getItem(SECTION_VISIBILITY_STORAGE_KEY);
+    if (!stored) return defaults;
+    const parsed = JSON.parse(stored);
+    if (!parsed || typeof parsed !== "object") return defaults;
+    return {
+      workspace:
+        typeof parsed.workspace === "boolean"
+          ? parsed.workspace
+          : defaults.workspace,
+      changes:
+        typeof parsed.changes === "boolean" ? parsed.changes : defaults.changes,
+      artifacts:
+        typeof parsed.artifacts === "boolean"
+          ? parsed.artifacts
+          : defaults.artifacts,
+    };
+  } catch {
+    return defaults;
+  }
+}
 
 export function ContextPanel({
   sessionId,
@@ -40,35 +67,36 @@ export function ContextPanel({
 }: ContextPanelProps) {
   const { t } = useTranslation("chat");
   const [activeTab, setActiveTab] = useState<ContextPanelTab>("details");
-  const primaryWorkingDir = projectWorkingDirs[0] ?? null;
+  const [sectionVisibility, setSectionVisibility] = useState(
+    getStoredSectionVisibility,
+  );
+  const primaryWorkspaceRoot = projectWorkingDirs[0] ?? null;
 
   const activeContext = useChatSessionStore(
-    (s) => s.activeWorkingContextBySession[sessionId],
+    (s) => s.activeWorkspaceBySession[sessionId],
   );
-  const setActiveWorkingContext = useChatSessionStore(
-    (s) => s.setActiveWorkingContext,
-  );
+  const setActiveWorkspace = useChatSessionStore((s) => s.setActiveWorkspace);
 
-  const gitQueryPath = activeContext?.path ?? primaryWorkingDir;
+  const gitTargetPath = activeContext?.path ?? primaryWorkspaceRoot;
   const {
     data: gitState,
     error,
     isLoading,
     isFetching,
     refetch,
-  } = useGitState(gitQueryPath, activeTab === "details");
+  } = useGitState(gitTargetPath, activeTab === "details");
 
   const {
     data: changedFiles,
     isLoading: isFilesLoading,
     refetch: refetchFiles,
-  } = useChangedFiles(gitQueryPath, activeTab === "details");
+  } = useChangedFiles(gitTargetPath, activeTab === "details");
 
   const handleContextChange = useCallback(
-    (context: WorkingContext) => {
-      setActiveWorkingContext(sessionId, context);
+    (context: ActiveWorkspace) => {
+      setActiveWorkspace(sessionId, context);
     },
-    [sessionId, setActiveWorkingContext],
+    [sessionId, setActiveWorkspace],
   );
 
   const refetchAll = useCallback(async () => {
@@ -150,11 +178,11 @@ export function ContextPanel({
 
   const handleOpenChangedFile = useCallback(
     (filePath: string) => {
-      if (!gitQueryPath) return;
-      const fullPath = `${gitQueryPath}/${filePath}`;
+      if (!gitTargetPath) return;
+      const fullPath = `${gitTargetPath}/${filePath}`;
       void openPath(fullPath);
     },
-    [gitQueryPath],
+    [gitTargetPath],
   );
 
   const handleRefresh = useCallback(() => {
@@ -162,23 +190,30 @@ export function ContextPanel({
   }, [refetchAll]);
 
   useEffect(() => {
-    const unlisten = listen<{ sessionId: string }>("acp:done", (event) => {
-      if (event.payload.sessionId === sessionId) {
-        void refetchFiles();
-      }
-    });
-    return () => {
-      void unlisten.then((fn) => fn());
-    };
-  }, [sessionId, refetchFiles]);
+    try {
+      window.localStorage.setItem(
+        SECTION_VISIBILITY_STORAGE_KEY,
+        JSON.stringify(sectionVisibility),
+      );
+    } catch {
+      // localStorage may be unavailable
+    }
+  }, [sectionVisibility]);
+
+  const toggleSection = useCallback((section: ContextPanelSection) => {
+    setSectionVisibility((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  }, []);
 
   return (
     <Tabs
       value={activeTab}
       onValueChange={(value) => setActiveTab(value as ContextPanelTab)}
-      className="flex h-full min-w-0 flex-1 flex-col"
+      className="flex h-full min-w-0 flex-1 flex-col gap-0"
     >
-      <div className="shrink-0 border-b border-border px-3 pb-2 pt-2.5">
+      <div className="shrink-0 border-b border-border px-4 pb-2 pt-2.5">
         <TabsList variant="buttons">
           <TabsTrigger value="details" variant="buttons">
             {t("contextPanel.tabs.details")}
@@ -190,7 +225,7 @@ export function ContextPanel({
       </div>
 
       <TabsContent value="details" className="flex-1 overflow-y-auto">
-        <div className="space-y-2.5 px-3 pb-3 pt-2">
+        <div className="pb-3">
           <WorkspaceWidget
             projectName={projectName}
             projectColor={projectColor}
@@ -209,16 +244,22 @@ export function ContextPanel({
             onCreateBranch={handleCreateBranch}
             onCreateWorktree={handleCreateWorktree}
             onRefresh={handleRefresh}
+            isOpen={sectionVisibility.workspace}
+            onToggleOpen={() => toggleSection("workspace")}
           />
           <ChangesWidget
             files={changedFiles}
             isLoading={isFilesLoading}
             currentBranch={gitState?.currentBranch ?? null}
-            repoPath={gitQueryPath ?? ""}
+            repoPath={gitTargetPath ?? ""}
             onOpenFile={handleOpenChangedFile}
+            isOpen={sectionVisibility.changes}
+            onToggleOpen={() => toggleSection("changes")}
           />
-          <ArtifactsWidget />
-          <McpServersWidget />
+          <ArtifactsWidget
+            isOpen={sectionVisibility.artifacts}
+            onToggleOpen={() => toggleSection("artifacts")}
+          />
         </div>
       </TabsContent>
 

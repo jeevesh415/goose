@@ -10,7 +10,6 @@ interface HeaderProps {
   status: string;
   loading: boolean;
   spinIdx: number;
-  hasPendingPermission: boolean;
   turnInfo?: { current: number; total: number };
 }
 
@@ -19,7 +18,6 @@ export const Header = React.memo(function Header({
   status,
   loading,
   spinIdx,
-  hasPendingPermission,
   turnInfo,
 }: HeaderProps) {
   const statusColor =
@@ -38,7 +36,7 @@ export const Header = React.memo(function Header({
           <Box flexShrink={1}>
             <Text color={statusColor} wrap="truncate-end">{status}</Text>
           </Box>
-          {loading && !hasPendingPermission && (
+          {loading && (
             <Text> <Spinner idx={spinIdx} /></Text>
           )}
         </Box>
@@ -48,7 +46,7 @@ export const Header = React.memo(function Header({
               {turnInfo.current}/{turnInfo.total}{"  "}
             </Text>
           )}
-          <Text color={TEXT_DIM}>^G configure · ^C exit</Text>
+          <Text color={TEXT_DIM}>^E exts · ^M models · ^P providers</Text>
         </Box>
       </Box>
       <Rule width={constrainedWidth} />

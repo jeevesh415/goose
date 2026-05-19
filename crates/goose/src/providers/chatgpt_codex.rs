@@ -5,7 +5,7 @@ use crate::providers::api_client::AuthProvider;
 use crate::providers::base::{ConfigKey, MessageStream, Provider, ProviderDef, ProviderMetadata};
 use crate::providers::errors::ProviderError;
 use crate::providers::formats::openai_responses::responses_api_to_streaming_message;
-use crate::providers::openai_compatible::handle_status_openai_compat;
+use crate::providers::openai_compatible::handle_status;
 use crate::providers::retry::ProviderRetry;
 use crate::session_context::SESSION_ID_HEADER;
 use anyhow::{anyhow, Result};
@@ -45,7 +45,7 @@ const OAUTH_TIMEOUT_SECS: u64 = 300;
 const HTML_AUTO_CLOSE_TIMEOUT_MS: u64 = 2000;
 
 const CHATGPT_CODEX_PROVIDER_NAME: &str = "chatgpt_codex";
-pub const CHATGPT_CODEX_DEFAULT_MODEL: &str = "gpt-5.3-codex";
+pub const CHATGPT_CODEX_DEFAULT_MODEL: &str = "gpt-5.5";
 
 #[derive(Debug)]
 pub struct ChatGptCodexModelAttrs {
@@ -55,27 +55,15 @@ pub struct ChatGptCodexModelAttrs {
 
 pub const CHATGPT_CODEX_KNOWN_MODELS: &[ChatGptCodexModelAttrs] = &[
     ChatGptCodexModelAttrs {
+        name: "gpt-5.5",
+        reasoning_levels: &["low", "medium", "high", "xhigh"],
+    },
+    ChatGptCodexModelAttrs {
         name: "gpt-5.4",
         reasoning_levels: &["low", "medium", "high", "xhigh"],
     },
     ChatGptCodexModelAttrs {
         name: "gpt-5.3-codex",
-        reasoning_levels: &["low", "medium", "high", "xhigh"],
-    },
-    ChatGptCodexModelAttrs {
-        name: "gpt-5.2-codex",
-        reasoning_levels: &["low", "medium", "high", "xhigh"],
-    },
-    ChatGptCodexModelAttrs {
-        name: "gpt-5.1-codex",
-        reasoning_levels: &["low", "medium", "high", "xhigh"],
-    },
-    ChatGptCodexModelAttrs {
-        name: "gpt-5.1-codex-mini",
-        reasoning_levels: &["medium", "high"],
-    },
-    ChatGptCodexModelAttrs {
-        name: "gpt-5.1-codex-max",
         reasoning_levels: &["low", "medium", "high", "xhigh"],
     },
 ];
@@ -806,6 +794,10 @@ impl ChatGptCodexAuthProvider {
         }
     }
 
+    fn clear_cached_tokens(&self) {
+        self.cache.clear();
+    }
+
     async fn get_valid_token(&self) -> Result<TokenData> {
         if let Some(mut token_data) = self.cache.load() {
             if token_data.expires_at > Utc::now() + chrono::Duration::seconds(60) {
@@ -865,6 +857,11 @@ pub struct ChatGptCodexProvider {
 }
 
 impl ChatGptCodexProvider {
+    pub async fn cleanup() -> Result<()> {
+        TokenCache::new().clear();
+        Ok(())
+    }
+
     pub async fn from_env(model: ModelConfig) -> Result<Self> {
         let auth_provider = Arc::new(ChatGptCodexAuthProvider::new(
             ChatGptCodexAuthState::instance(),
@@ -919,7 +916,7 @@ impl ChatGptCodexProvider {
             .await
             .map_err(|e| ProviderError::RequestFailed(e.to_string()))?;
 
-        handle_status_openai_compat(response).await
+        handle_status(response).await
     }
 }
 
@@ -949,6 +946,10 @@ impl ProviderDef for ChatGptCodexProvider {
         _extensions: Vec<crate::config::ExtensionConfig>,
     ) -> BoxFuture<'static, Result<Self::Provider>> {
         Box::pin(Self::from_env(model))
+    }
+
+    fn inventory_configured() -> bool {
+        TokenCache::new().load().is_some()
     }
 }
 
@@ -997,10 +998,25 @@ impl Provider for ChatGptCodexProvider {
     }
 
     async fn configure_oauth(&self) -> Result<(), ProviderError> {
-        self.auth_provider
-            .get_valid_token()
+        let previous_token = self.auth_provider.cache.load();
+        self.auth_provider.clear_cached_tokens();
+
+        let result = perform_oauth_flow(self.auth_provider.state.as_ref())
             .await
-            .map_err(|e| ProviderError::Authentication(format!("OAuth flow failed: {}", e)))?;
+            .and_then(|token_data| self.auth_provider.cache.save(&token_data));
+
+        if let Err(e) = result {
+            if let Some(previous_token) = previous_token.as_ref() {
+                if self.auth_provider.cache.load().is_none() {
+                    let _ = self.auth_provider.cache.save(previous_token);
+                }
+            }
+            return Err(ProviderError::Authentication(format!(
+                "OAuth flow failed: {}",
+                e
+            )));
+        }
+
         Ok(())
     }
 
@@ -1040,6 +1056,29 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn inventory_configured_uses_oauth_token_cache() {
+        let root = tempfile::tempdir().unwrap();
+        let root_path = root.path().to_string_lossy().to_string();
+        let _guard = env_lock::lock_env([("GOOSE_PATH_ROOT", Some(root_path.as_str()))]);
+
+        TokenCache::new().clear();
+        assert!(!ChatGptCodexProvider::inventory_configured());
+
+        TokenCache::new()
+            .save(&TokenData {
+                access_token: "access".to_string(),
+                refresh_token: "refresh".to_string(),
+                id_token: None,
+                expires_at: Utc::now() + chrono::Duration::hours(1),
+                account_id: Some("account".to_string()),
+            })
+            .unwrap();
+
+        assert!(ChatGptCodexProvider::inventory_configured());
     }
 
     #[test_case(

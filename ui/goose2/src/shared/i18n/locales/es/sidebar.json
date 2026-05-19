@@ -1,5 +1,6 @@
 {
   "actions": {
+    "backToMainNavigation": "Atrás",
     "collapse": "Contraer barra lateral",
     "expand": "Expandir barra lateral",
     "newChat": "Nuevo chat",
@@ -11,19 +12,21 @@
     "optionsFor": "Opciones para {{label}}"
   },
   "navigation": {
-    "agents": "Personas",
+    "agents": "Agentes",
+    "extensions": "Extensiones",
     "home": "Inicio",
+    "main": "Navegación principal",
     "sessionHistory": "Historial de sesiones",
     "skills": "Habilidades"
   },
   "search": {
-    "error": "La búsqueda de mensajes falló. Mostrando solo coincidencias de metadatos.",
-    "placeholder": "Busca chats por título, persona, proyecto o mensaje...",
+    "error": "La búsqueda de mensajes falló. Mostrando solo coincidencias de metadatos. Inténtalo de nuevo.",
+    "placeholder": "Buscar chats...",
     "searching": "Buscando chats..."
   },
   "sections": {
     "projects": "Proyectos",
-    "recents": "Recientes"
+    "recents": "Chats"
   },
   "showLess": "Mostrar menos",
   "viewAllChats_one": "Ver {{displayCount}} chat",
